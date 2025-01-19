@@ -1,0 +1,121 @@
+{
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2025-01-18T12:26:58-06:00",
+    "name": "FTB - Modpacks",
+    "author": "MexicanKingSnakes@gmail.com",
+    "description": "Support for FTB modpacks via modpacks.ch API.",
+    "features": [
+        "eula",
+        "java_version",
+        "pid_limit"
+    ],
+    "docker_images": {
+        "JAVA-21": "ghcr.io\/pterodactyl\/yolks:java_21",
+        "JAVA-18": "ghcr.io\/pterodactyl\/yolks:java_18",
+        "JAVA-17": "ghcr.io\/pterodactyl\/yolks:java_17",
+        "JAVA-16": "ghcr.io\/pterodactyl\/yolks:java_16",
+        "JAVA-11": "ghcr.io\/pterodactyl\/yolks:java_11",
+        "JAVA-8": "ghcr.io\/pterodactyl\/yolks:java_8"
+    },
+    "file_denylist": [],
+    "startup": "java -javaagent:log4jfix\/Log4jPatcher-1.0.0.jar -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+AlwaysActAsServerClassMachine -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:+UseNUMA -XX:NmethodSweepActivity=1 -XX:ReservedCodeCacheSize=400M -XX:NonNMethodCodeHeapSize=12M -XX:ProfiledCodeHeapSize=194M -XX:NonProfiledCodeHeapSize=194M -XX:-DontCompileHugeMethods -XX:MaxNodeLimit=240000 -XX:NodeLimitFudgeFactor=8000 -XX:+UseVectorCmov -XX:+PerfDisableSharedMem -XX:+UseFastUnorderedTimeStamps -XX:+UseCriticalJavaThreadPriority -XX:AllocatePrefetchStyle=3 -XX:+UseG1GC -XX:MaxGCPauseMillis=130 -XX:G1NewSizePercent=28 -XX:G1HeapRegionSize=16M -XX:G1ReservePercent=20 -XX:G1MixedGCCountTarget=3 -XX:InitiatingHeapOccupancyPercent=10 -XX:G1MixedGCLiveThresholdPercent=90 -XX:SurvivorRatio=32 -XX:MaxTenuringThreshold=1 -XX:G1SATBBufferEnqueueingThresholdPercent=30 -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.ansi=true -jar start-server.jar",
+    "config": {
+        "files": "{\r\n    \"server.properties\": {\r\n        \"parser\": \"properties\",\r\n        \"find\": {\r\n            \"server-ip\": \"0.0.0.0\",\r\n            \"server-port\": \"{{server.build.default.port}}\",\r\n            \"query.port\": \"{{server.build.default.port}}\",\r\n            \"level-seed\": \"{{env.WORLD_SEED}}\",\r\n            \"motd\": \"{{env.MOTD}}\",\r\n            \"difficulty\": \"{{env.DIFFICULTY}}\"\r\n        }\r\n    }\r\n}",
+        "startup": "{\r\n    \"done\": \"For help, type \"\r\n}",
+        "logs": "{}",
+        "stop": "stop"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!\/bin\/bash\n# FTB INSTALLATION SCRIPT\n#\n# SERVER FILES: \/mnt\/server\nif [ ! -d \/mnt\/server ]; then\n    mkdir -p \/mnt\/server\nfi\ncd \/mnt\/server\n\napt update\napt install -y curl jq\n\nfunction get_modpack_id {\n    urlencode() {\n        local string=\"${1\/\/ \/%20}\"\n        echo \"$string\"\n    }\n\n    if [ -z ${FTB_MODPACK_ID} ] && [ ! -z \"${FTB_SEARCH_TERM}\" ]; then\n        encoded_search_term=$(urlencode \"$FTB_SEARCH_TERM\")\n        JSON_DATA=$(curl -sSL https:\/\/api.modpacks.ch\/public\/modpack\/search\/8?term=\"${encoded_search_term}\")\n        FTB_MODPACK_ID=$(echo -e ${JSON_DATA} | jq -r \".packs[0]\")\n\n        if [ \"$FTB_MODPACK_ID\" == \"null\" ] || [ -z \"$FTB_MODPACK_ID\" ]; then\n            echo \"ERROR: No modpack found via search of '$FTB_SEARCH_TERM'. Verify and try again.\"\n            exit 1\n        fi\n    fi\n\n    if [ -z ${FTB_MODPACK_VERSION_ID} ] && [ ! -z ${FTB_VERSION_STRING} ]; then\n        FTB_MODPACK_VERSION_ID=$(curl -sSL https:\/\/api.modpacks.ch\/public\/modpack\/${FTB_MODPACK_ID} | jq -r --arg VSTRING ${FTB_VERSION_STRING} '.versions[] | select(.name == $VSTRING) | .id')\n\n        if [ \"$FTB_MODPACK_VERSION_ID\" == \"null\" ] || [ -z \"$FTB_MODPACK_VERSION_ID\" ]; then\n            echo \"ERROR: Version '$FTB_VERSION_STRING' not found for modpack ID '$FTB_MODPACK_ID'. Verify and try again.\"\n            exit 1\n        fi\n    fi\n}\n\nfunction run_installer {\n    INSTALLER_TYPE=$([ \"$(uname -m)\" == \"x86_64\" ] && echo \"linux\" || echo \"arm\/linux\")\n    echo \"ModpackID: ${FTB_MODPACK_ID} VersionID: ${FTB_MODPACK_VERSION_ID} InstallerType: ${INSTALLER_TYPE}\"\n\n    curl -L https:\/\/api.modpacks.ch\/public\/modpack\/0\/0\/server\/${INSTALLER_TYPE} --output serversetup\n    chmod +x .\/serversetup\n\n    rm -rf libraries\/net\/minecraftforge\/forge\n    rm -rf libraries\/net\/neoforged\/forge\n    rm -f unix_args.txt\n\n    .\/serversetup ${FTB_MODPACK_ID} ${FTB_MODPACK_VERSION_ID} --auto --noscript --nojava\n}\n\nfunction move_startup_files {\n    if compgen -G \"*.jar\"; then\n        jar_file=$(ls *.jar | head -n 1)\n        mv -f \"$jar_file\" start-server.jar\n    fi\n}\n\nfunction install_custom_mods {\n    if [ ! -z \"${CUSTOM_MOD_URLS}\" ]; then\n        mkdir -p mods\n        IFS=',' read -ra URLS <<< \"${CUSTOM_MOD_URLS}\"\n        for url in \"${URLS[@]}\"; do\n            echo \"Downloading mod from: $url\"\n            curl -o mods\/$(basename $url) $url || echo \"Failed to download $url\"\n        done\n    fi\n}\n\nfunction install_custom_texturepacks {\n    if [ ! -z \"${CUSTOM_TEXTUREPACK_URLS}\" ]; then\n        mkdir -p resourcepacks\n        IFS=',' read -ra URLS <<< \"${CUSTOM_TEXTUREPACK_URLS}\"\n        for url in \"${URLS[@]}\"; do\n            echo \"Downloading texture pack from: $url\"\n            curl -o resourcepacks\/$(basename $url) $url || echo \"Failed to download $url\"\n        done\n    fi\n}\n\nget_modpack_id\nrun_installer\nmove_startup_files\ninstall_custom_mods\ninstall_custom_texturepacks\ninstaller_cleanup\n\necho \"FINISHED INSTALLING FTB SERVER\"",
+            "container": "openjdk:21-jdk-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "FTB NAME SEARCH",
+            "description": "SEARCH BY MODPACK NAME, MAKE SURE NAME IS EXACT AS SHOWN AT https://www.feed-the-beast.com/modpacks",
+            "env_variable": "FTB_SEARCH_TERM",
+            "default_value": "FTB Evolution",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "FTB MODPACK ID",
+            "description": "SEARCH BY MODPACK ID, NOT NEEDED IF USING NAME SEARCH",
+            "env_variable": "FTB_MODPACK_ID",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer",
+            "field_type": "text"
+        },
+        {
+            "name": "FTB MODPACK VERSION",
+            "description": "SELECT VERSION OF MODPACK VERSION TO INSTALL, LEAVE BLANK TO USE LATEST",
+            "env_variable": "FTB_VERSION_STRING",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "MINECRAFT - WORLD SEED",
+            "description": "SPECIFY WORLD SEED TO USE FOR THE SERVER",
+            "env_variable": "WORLD_SEED",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "MINECRAFT - MOTD",
+            "description": "SPECIFY MESSAGE OF THE DAY TO USE FOR THE SERVER",
+            "env_variable": "MOTD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "MINECRAFT - DIFFICULTY",
+            "description": "SET THE DIFFICULTY LEVEL FOR THE SERVER (EASY, NORMAL, HARD)",
+            "env_variable": "DIFFICULTY",
+            "default_value": "easy",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "CUSTOM MOD URLS",
+            "description": "PROVIDE COMMA-SEPARATED URLS TO CUSTOM MODS TO INSTALL INTO THE MODS FOLDER",
+            "env_variable": "CUSTOM_MOD_URLS",
+            "default_value": "https://cdn.modrinth.com/data/16vhQOQN/versions/XCcqHr3M/minimotd-neoforge-mc1.21.1-2.1.3.jar,https://cdn.modrinth.com/data/gvQqBUqZ/versions/fyVzZaMa/lithium-neoforge-0.14.6%2Bmc1.21.1.jar,https://cdn.modrinth.com/data/AANobbMI/versions/zBRij2cH/sodium-neoforge-0.6.5%2Bmc1.21.1.jar,https://cdn.modrinth.com/data/YL57xq9U/versions/QS9F364b/iris-neoforge-1.8.1%2Bmc1.21.1.jar",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "textarea"
+        },
+        {
+            "name": "CUSTOM TEXTUREPACK URLS",
+            "description": "PROVIDE COMMA-SEPARATED URLS TO CUSTOM TEXTUREPACKS TO INSTALL INTO THE RESOURCEPACKS FOLDER",
+            "env_variable": "CUSTOM_TEXTUREPACK_URLS",
+            "default_value": "https://drive.usercontent.google.com/download?id=1Q12T2x4aqHBjFFlYL4NLRvgVlDVvWYm8&export=download&authuser=0&confirm=t&uuid=af7bf77c-3dd3-4f62-88d9-45a76c335fa2&at=AIrpjvMFWCKbhHZrsfzEPLB6CYIf%3A1737322936504,https://drive.usercontent.google.com/download?id=1oSi9OrMKmRfW2cwwicGpueAOL7eQbNyy&export=download&authuser=0,https://drive.usercontent.google.com/download?id=1DC0gnI617us4qi9w4JCUiGGkvv5XCzjD&export=download&authuser=0&confirm=t&uuid=735ff25b-a85f-464e-93df-0ae963ffe5b9&at=AIrpjvMUA_5qY7muYCPTHBO-K0D5%3A1737322819520,https://cdn.modrinth.com/data/UinPYBF7/versions/sGr08Hu1/Enhanced%20Audio%20r6.zip",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "textarea"
+        }
+    ]
+}
